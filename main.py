@@ -10,8 +10,8 @@ import random as rnd
 
 
 MAX_ROOMS = 250
-ENDPOINT_DIST = 800
-PUSH_DIST = 40
+ENDPOINT_DIST = 1000
+PUSH_DIST = 50
 PUSH_POWER = 2
 PUSH_KD = 1e-3
 PULL_DIST = 20
@@ -20,7 +20,7 @@ PULL_KS = 5e-3
 BOUNDARY_DIST = 30
 BOUNDARY_POWER = 1.2
 BOUNDARY_KD = 0.1
-UPDATE_SCALE = 2.0
+UPDATE_SCALE = 3.0
 
 
 def main():
@@ -47,9 +47,13 @@ def main():
                     level.jog()
                 if event.key == pygame.K_BACKSPACE:
                     level = Level()
+                if event.key == pygame.K_b:
+                    level.fix_overlap(clip=False)
+                if event.key == pygame.K_k:
+                    level.fix_overlap(clip=True)
 
         counter += 1
-        if counter > 10 and level.count_rooms() < MAX_ROOMS:
+        if counter > 3 and level.count_rooms() < MAX_ROOMS:
             counter = 0
             level.augment()
 
@@ -97,10 +101,10 @@ def main():
             y = room.y + cy
             radius = 3
             if room.name == 'Start':
-                color = "yellow"
+                color = "green"
                 radius = 5
             elif room.name == 'Finish':
-                color = 'green'
+                color = 'red'
                 radius = 5
             else:
                 color = 'white'
@@ -219,15 +223,23 @@ class Portal:
 
     def set_start(self, room):
         if self.start is not None:
-            self.start.portals.delete(self)
+            self.start.portals.remove(self)
         self.start = room
         room.add_portal(self)
 
     def set_end(self, room):
         if self.end is not None:
-            self.end.portals.delete(self)
+            self.end.portals.remove(self)
         self.end = room
         room.add_portal(self)
+
+    def unhook(self):
+        if self.start is not None:
+            self.start.portals.remove(self)
+            self.start = None
+        if self.end is not None:
+            self.end.portals.remove(self)
+            self.end = None
 
     def pull(self, target_length, power=3, ks=1e-3):
         self.start.pull(self.end, target_length, power, ks)
@@ -273,8 +285,8 @@ class Level:
     def __init__(self):
         self.rooms: List[Room] = []
         self.portals: List[Portal] = []
-        self.first: Room = Room("Start", -100, 0)
-        self.last: Room = Room("Finish", 100, 0)
+        self.first: Room = Room("Start", -30, 0)
+        self.last: Room = Room("Finish", 30, 0)
         self.rooms.append(self.first)
         self.rooms.append(self.last)
         self.portals.append(Portal(self.first, self.last))
@@ -311,33 +323,33 @@ class Level:
         self.balance()
 
     def split_portal(self, portal):
-        print("split_portal")
+        # print("split_portal")
         new_portal = Portal(portal.start, portal.end)
         self.portals.append(new_portal)
         self.add_room(portal)
         self.add_room(new_portal)
 
     def add_room(self, portal):
-        print("add room")
+        # print("add room")
         room1 = portal.start
         room2 = portal.end
         new_x = (room1.x + room2.x) / 2
         new_y = (room1.y + room2.y) / 2
         new_room = Room("", new_x, new_y)
         room2 = portal.end
-        portal.end = new_room
-        new_portal = Portal(room2, new_room)
+        portal.set_end(new_room)
+        new_portal = Portal(new_room, room2)
         self.rooms.append(new_room)
         self.portals.append(new_portal)
 
     def add_offshoot(self, room):
-        print("add offshoot")
+        # print("add offshoot")
         room1 = Room("", room.x, room.y, offset=True)
         self.rooms.append(room1)
         self.portals.append(Portal(room, room1))
 
     def add_loop(self, room):
-        print("add loop")
+        # print("add loop")
         room1 = Room("", room.x, room.y, offset=True)
         new_x = (room1.x + room.x) / 2
         new_y = (room1.y + room.y) / 2
@@ -357,15 +369,15 @@ class Level:
 
     def augment(self):
         if self.count_rooms() < 7:
-            choice = rnd.choices(range(4), [10, 90, 0, 0])[0]
+            choice = rnd.choices([0, 1, 2, 3], [10, 90, 0, 0])[0]
         elif self.count_rooms() < 10:
-            choice = rnd.choices(range(4), [20, 50, 30, 0])[0]
-        elif self.count_rooms() < 40:
-            choice = rnd.choices(range(4), [60, 30, 7, 3])[0]
+            choice = rnd.choices([0, 1, 2, 3], [50, 30, 20, 0])[0]
+        elif self.count_rooms() < 20:
+            choice = rnd.choices([0, 1, 2, 3], [30, 30, 40, 0])[0]
         elif self.count_rooms() < 80:
-            choice = rnd.choices(range(4), [35, 40, 15, 10])[0]
+            choice = rnd.choices([0, 1, 2, 3], [35, 40, 25, 5])[0]
         else:
-            choice = rnd.choices(range(4), [30, 25, 30, 15])[0]
+            choice = rnd.choices([0, 1, 2, 3], [30, 25, 30, 15])[0]
         if choice == 0:
             p = rnd.randint(0, len(self.portals) - 1)
             self.split_portal(self.portals[p])
@@ -381,6 +393,27 @@ class Level:
             if self.rooms[r].name != 'Finish':
                 self.add_loop(self.rooms[r])
 
+    def fix_overlap(self, clip: bool):
+        overlaps = []
+        for portal in self.portals:
+            if portal.overlapping:
+                overlaps.append(portal)
+        if len(overlaps) == 0:
+            return
+
+        p = rnd.randint(0, len(overlaps) - 1)
+        portal = overlaps[p]
+        if clip:
+            portal.unhook()
+            self.portals.remove(portal)
+        else:
+            self.add_room(portal)
+
 
 if __name__ == "__main__":
+    from collections import defaultdict
+    # out = rnd.choices([0, 1, 2, 3], weights=[35, 40, 25, 5], k=100000)
+    # counter = defaultdict(int)
+    # for v in out:
+    #     counter[v] += 1
     main()
